@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Samar Car</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+
+    <div id="hud">
+      <div class="row">
+        <span id="bleStatus" class="pill bad">BLE: disconnected</span>
+        <span id="modelStatus" class="pill bad">Model: loading</span>
+        <span id="fps" class="pill">0 fps</span>
+      </div>
+      <div class="row">
+        <label>Target
+          <select id="targetClass"></select>
+        </label>
+        <label>Min conf
+          <input id="minConf" type="range" min="0.2" max="0.9" step="0.05" value="0.5" />
+          <span id="minConfVal">0.50</span>
+        </label>
+      </div>
+      <div class="row">
+        <button id="connectBtn">Connect car</button>
+        <button id="autoBtn" disabled>Autopilot: OFF</button>
+        <span id="cmd" class="pill big">S</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
