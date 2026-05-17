@@ -147,6 +147,8 @@ function onBleDisconnected() {
 async function sendSteer(value, force = false) {
   const v = Math.max(0, Math.min(255, value | 0));
   els.cmd.textContent = v;
+  { const bar = document.getElementById("steerBar"); if (bar) { const pct = (v - 128) / 255 * 100; bar.style.left = (pct >= 0 ? 50 : 50 + pct) + "%"; bar.style.width = Math.abs(pct) + "%"; } }
+  { const mk = document.getElementById("steerMarker"); if (mk) mk.style.left = (v / 255 * 100) + "%"; }
   if (!state.steerChar) return;
   const now = performance.now();
   // Throttle duplicates: same value within 100 ms is suppressed.
