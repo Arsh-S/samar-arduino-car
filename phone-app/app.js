@@ -3,7 +3,8 @@
 // over Web Bluetooth to an Arduino UNO R4 WiFi BLE peripheral.
 
 const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const CMD_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const STEER_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const STEER_NEUTRAL = 128;
 
 // COCO-SSD class list (all 80 supported classes).
 const COCO_CLASSES = [
@@ -37,9 +38,9 @@ const els = {
 const state = {
   model: null,
   bleDevice: null,
-  cmdChar: null,
+  steerChar: null,
   autopilot: false,
-  lastSentCmd: null,
+  lastSentSteer: null,
   lastSentAt: 0,
   fpsTimes: [],
 };
@@ -62,11 +63,11 @@ els.minConf.addEventListener("input", () => {
 
 els.connectBtn.addEventListener("click", connectBle);
 els.autoBtn.addEventListener("click", () => {
-  if (!state.cmdChar) return;
+  if (!state.steerChar) return;
   state.autopilot = !state.autopilot;
   els.autoBtn.textContent = `Autopilot: ${state.autopilot ? "ON" : "OFF"}`;
   els.autoBtn.classList.toggle("on", state.autopilot);
-  if (!state.autopilot) sendCmd("S", true);
+  if (!state.autopilot) sendSteer(STEER_NEUTRAL, true);
 });
 
 // --- Camera ---
@@ -120,10 +121,10 @@ async function connectBle() {
     device.addEventListener("gattserverdisconnected", onBleDisconnected);
     const server = await device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
-    const ch = await service.getCharacteristic(CMD_CHAR_UUID);
+    const ch = await service.getCharacteristic(STEER_CHAR_UUID);
 
     state.bleDevice = device;
-    state.cmdChar = ch;
+    state.steerChar = ch;
     els.bleStatus.textContent = `BLE: ${device.name || "connected"}`;
     els.bleStatus.classList.remove("bad"); els.bleStatus.classList.add("good");
     els.autoBtn.disabled = false;
@@ -134,7 +135,7 @@ async function connectBle() {
 }
 
 function onBleDisconnected() {
-  state.cmdChar = null;
+  state.steerChar = null;
   state.autopilot = false;
   els.bleStatus.textContent = "BLE: disconnected";
   els.bleStatus.classList.remove("good"); els.bleStatus.classList.add("bad");
@@ -143,20 +144,21 @@ function onBleDisconnected() {
   els.autoBtn.classList.remove("on");
 }
 
-async function sendCmd(c, force = false) {
-  els.cmd.textContent = c;
-  if (!state.cmdChar) return;
+async function sendSteer(value, force = false) {
+  const v = Math.max(0, Math.min(255, value | 0));
+  els.cmd.textContent = v;
+  if (!state.steerChar) return;
   const now = performance.now();
-  // Throttle: resend same command at most every 200ms; new command immediately.
-  if (!force && c === state.lastSentCmd && now - state.lastSentAt < 200) return;
-  state.lastSentCmd = c;
+  // Throttle duplicates: same value within 100 ms is suppressed.
+  if (!force && v === state.lastSentSteer && now - state.lastSentAt < 100) return;
+  state.lastSentSteer = v;
   state.lastSentAt = now;
   try {
-    const buf = new Uint8Array([c.charCodeAt(0)]);
-    if (state.cmdChar.writeValueWithoutResponse) {
-      await state.cmdChar.writeValueWithoutResponse(buf);
+    const buf = new Uint8Array([v]);
+    if (state.steerChar.writeValueWithoutResponse) {
+      await state.steerChar.writeValueWithoutResponse(buf);
     } else {
-      await state.cmdChar.writeValue(buf);
+      await state.steerChar.writeValue(buf);
     }
   } catch (err) {
     console.warn("BLE write failed", err);
@@ -165,17 +167,17 @@ async function sendCmd(c, force = false) {
 
 // --- Steering policy ---
 
-// Given the target box and frame width, decide F/L/R/S.
-// Box: {bbox: [x, y, w, h], score, class}
-function decide(box, frameW) {
-  if (!box) return "S";
+// Map target horizontal position to PWM byte:
+//   target far left  -> 0
+//   target centered  -> 128
+//   target far right -> 255
+// No target -> neutral (128).
+function steerByte(box, frameW) {
+  if (!box) return STEER_NEUTRAL;
   const [x, , w] = box.bbox;
   const cx = x + w / 2;
-  const norm = (cx - frameW / 2) / (frameW / 2); // -1 left .. +1 right
-  const deadband = 0.15;
-  if (norm < -deadband) return "L";
-  if (norm > deadband) return "R";
-  return "F";
+  const norm = Math.max(-1, Math.min(1, (cx - frameW / 2) / (frameW / 2)));
+  return Math.round((norm + 1) * 127.5);
 }
 
 // --- Detection loop ---
@@ -199,8 +201,10 @@ async function loop() {
 
       draw(ctx, preds, best, wantClass);
 
-      const cmd = state.autopilot ? decide(best, els.overlay.width) : "S";
-      sendCmd(cmd);
+      const steer = state.autopilot
+        ? steerByte(best, els.overlay.width)
+        : STEER_NEUTRAL;
+      sendSteer(steer);
 
       // FPS
       const now = performance.now();
